@@ -1,6 +1,5 @@
 
 from http import HTTPStatus
-import json
 import logging
 import os
 import requests
@@ -53,53 +52,43 @@ def get_api_answer(timestamp):
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
         logging.debug('Отправлен запрос')
     except Exception as error:
-        logging.error(f'Эндпоинт недоступен: {error}')
-        send_message(f'Эндпоинт недоступен: {error}')
+        raise Exception(f'Эндпоинт недоступен: {error}')
     if response.status_code != HTTPStatus.OK:
         logging.error(f'Код ответа не 200: {response.status_code}')
         raise requests.exceptions.RequestException(
             f'Код ответа не 200: {response.status_code}'
         )
-    try:
-        return response.json()
-    except json.JSONDecodeError:
-        logging.error('Сервер вернул невалидный ответ')
-        send_message('Сервер вернул невалидный ответ')
+    return response.json()
 
 
 def check_response(response):
     """Проверяет ответ API."""
-    try:
-        homework = response['homeworks']
-    except KeyError as error:
-        logging.error(f'Ошибка доступа по ключу homeworks: {error}')
-    if not isinstance(homework, list):
+    if not isinstance(response, dict):
+        raise TypeError('Ответ API отличен от словаря')
+    if 'homeworks' not in response:
+        logging.error('Нет ключа homeworks')
+        raise Exception('Нет ключа homeworks')
+    if 'current_date' not in response:
+        logging.error('Нет ключа current_date')
+        raise Exception('Нет ключа current_date')
+    homeworks = response['homeworks']
+    if not isinstance(homeworks, list):
         logging.error('Homeworks не в виде списка')
         raise TypeError('Homeworks не в виде списка')
-    return homework
+    return homeworks
 
 
 def parse_status(homework):
     """Извлекает из информации о конкретной домашней работе."""
-    try:
-        homework_name = homework['homework_name']
-    except KeyError:
-        logging.error('Неверный ответ сервера')
-    homework_status = homework.get('status')
-    verdict = ''
-    if ((homework_status is None) or (
-        homework_status == '')) or ((
-            homework_status != 'approved') and (
-            homework_status != 'rejected') and (
-            homework_status != 'reviewing')):
-        logging.error(f'Статус работы некорректен: {homework_status}')
-        raise KeyError('Homeworks не в виде списка')
-    if homework_status == 'rejected':
-        verdict = HOMEWORK_VERDICTS['rejected']
-    elif homework_status == 'approved':
-        verdict = HOMEWORK_VERDICTS['approved']
-    elif homework_status == 'reviewing':
-        verdict = HOMEWORK_VERDICTS['reviewing']
+    if 'homework_name' not in homework:
+        raise KeyError('Отстутвует ключ "homework"')
+    if 'status' not in homework:
+        raise KeyError('Отсутвует ключ "status"')
+    homework_status = homework['status']
+    homework_name = homework['homework_name']
+    if homework_status not in HOMEWORK_VERDICTS:
+        raise Exception(f'Статус работы некорректен: {homework_status}')
+    verdict = HOMEWORK_VERDICTS[homework_status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -115,18 +104,20 @@ def main():
     while True:
         try:
             response = get_api_answer(timestamp)
-            homework = check_response(response)[0]
-            status = parse_status(homework)
-            if status != first_status:
-                first_status = status
-                send_message(bot, status)
-                logging.info('Сообщение отправлено')
+            homework = check_response(response)
+            if homework:
+                status = parse_status(homework[0])
             else:
-                logging.debug('Изменений нет')
-            time.sleep(RETRY_PERIOD)
+                status = 'Изменений нет'
+            if status != first_status:
+                send_message(bot, status)
+                first_status = status
+            else:
+                logging.info(status)
         except Exception as error:
             logging.error(f'Сбой в работе программы: {error}')
             send_message(bot, f'Сбой в работе программы: {error}')
+        finally:
             time.sleep(RETRY_PERIOD)
 
 
