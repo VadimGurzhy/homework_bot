@@ -54,8 +54,7 @@ def get_api_answer(timestamp):
     except Exception as error:
         raise Exception(f'Эндпоинт недоступен: {error}')
     if response.status_code != HTTPStatus.OK:
-        logging.error(f'Код ответа не 200: {response.status_code}')
-        raise requests.exceptions.RequestException(
+        raise ConnectionError(
             f'Код ответа не 200: {response.status_code}'
         )
     return response.json()
@@ -104,9 +103,9 @@ def main():
     while True:
         try:
             response = get_api_answer(timestamp)
-            homework = check_response(response)
-            if homework:
-                status = parse_status(homework[0])
+            homeworks = check_response(response)
+            if homeworks:
+                status = parse_status(homeworks[0])
             else:
                 status = 'Изменений нет'
             if status != first_status:
